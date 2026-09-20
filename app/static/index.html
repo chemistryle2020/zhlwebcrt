@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>zhlwebcrt - 设备运维平台</title>
+<link rel="stylesheet" href="/static/vendor/element-plus.css">
+<link rel="stylesheet" href="/static/vendor/element-plus-dark.css">
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2330; --border: #2d333f;
+    --green: #3fb950; --red: #f85149; --yellow: #d29922; --blue: #58a6ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: var(--bg); }
+  #app { height: 100vh; display: flex; overflow: hidden; }
+
+  /* 侧边栏 */
+  .sidebar { width: 210px; background: var(--panel); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; flex-shrink: 0; }
+  .logo { padding: 18px 16px; font-size: 17px; font-weight: bold; color: #e6edf3;
+    border-bottom: 1px solid var(--border); }
+  .logo span { color: var(--blue); }
+  .sidebar .el-menu { border-right: none; flex: 1; background: transparent; }
+  .sidebar .el-menu-item { color: #9da7b3; }
+  .sidebar .el-menu-item.is-active { color: var(--blue); background: rgba(88,166,255,.12); }
+  .sidebar .el-menu-item:hover { background: rgba(88,166,255,.08); }
+
+  /* 分区文件夹（折叠面板） */
+  .zone-collapse { border-top: none; border-bottom: none; }
+  .zone-collapse .el-collapse-item__header {
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 0 14px; height: 42px; margin-bottom: 6px; color: #e6edf3;
+  }
+  .zone-collapse .el-collapse-item__wrap { background: transparent; border-bottom: none; }
+  .zone-collapse .el-collapse-item__content { padding: 2px 0 10px; }
+  .zone-collapse .el-collapse-item__arrow { color: #8b949e; }
+
+  /* 主区 */
+  .main-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { height: 52px; background: var(--panel); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 20px; gap: 16px; flex-shrink: 0; }
+  .page-title { font-size: 15px; font-weight: bold; color: #e6edf3; flex: 1; }
+  .content { flex: 1; overflow-y: auto; padding: 16px 20px; }
+
+  /* 统计卡片 */
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 16px; }
+  .stat-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 18px; position: relative; overflow: hidden; }
+  .stat-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+  .stat-card.c-green::before { background: var(--green); }
+  .stat-card.c-red::before { background: var(--red); }
+  .stat-card.c-blue::before { background: var(--blue); }
+  .stat-card.c-yellow::before { background: var(--yellow); }
+  .stat-num { font-size: 30px; font-weight: bold; color: #e6edf3; line-height: 1.1; }
+  .stat-label { font-size: 13px; color: #8b949e; margin-top: 4px; }
+
+  /* 面板 */
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; margin-bottom: 16px; }
+  .panel-title { font-size: 14px; font-weight: bold; color: #c9d1d9; margin: 0 0 12px; }
+  .toolbar { margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  /* 红绿灯 */
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+  .dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.red { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .dot.gray { background: #6e7681; }
+
+  pre.output { background: #0d1117; color: #c9d1d9; border: 1px solid var(--border);
+    padding: 12px; border-radius: 6px; overflow: auto; max-height: 60vh;
+    font-size: 13px; line-height: 1.4; white-space: pre-wrap; word-break: break-all; }
+  pre.diff { background: #0d1117; border: 1px solid var(--border); padding: 12px;
+    border-radius: 6px; overflow: auto; max-height: 60vh; font-size: 13px; line-height: 1.4; }
+  .diff-add { background: rgba(63,185,80,.15); color: #3fb950; display: block; }
+  .diff-del { background: rgba(248,81,73,.15); color: #f85149; display: block; }
+  mark { background: #9e6a03; color: #fff; padding: 0 2px; border-radius: 2px; }
+  .cmd-input textarea { font-family: Consolas, monospace !important; }
+  .preset-btn { margin: 2px 4px 2px 0; }
+  .chart-box { height: 220px; }
+  .alert-item { display: flex; align-items: center; gap: 10px; padding: 8px 0;
+    border-bottom: 1px solid var(--border); font-size: 13px; }
+  .alert-item:last-child { border-bottom: none; }
+  .el-table { --el-table-border-color: var(--border); }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- ===== 侧边栏 ===== -->
+  <div class="sidebar">
+    <div class="logo">🖥️ zhl<span>webcrt</span></div>
+    <el-menu :default-active="page" @select="page = $event">
+      <el-menu-item index="dashboard">📊 监控大盘</el-menu-item>
+      <el-menu-item index="tasks">📋 采集任务</el-menu-item>
+      <el-menu-item index="devices">🗄️ 设备管理</el-menu-item>
+      <el-menu-item index="credentials">🔑 凭据管理</el-menu-item>
+      <el-menu-item index="search">🔍 全文检索</el-menu-item>
+      <el-menu-item index="schedules">⏰ 定时任务</el-menu-item>
+      <el-menu-item index="audit">📝 审计日志</el-menu-item>
+      <el-menu-item index="settings">⚙️ 设置</el-menu-item>
+    </el-menu>
+  </div>
+
+  <!-- ===== 主区 ===== -->
+  <div class="main-wrap">
+    <div class="topbar">
+      <div class="page-title">{{ pageTitles[page] }}</div>
+      <el-badge :value="overview.unacked_alerts || 0" :hidden="!overview.unacked_alerts" :max="99">
+        <el-button size="small" circle @click="page='dashboard'; alertPanelVisible=true">🔔</el-button>
+      </el-badge>
+      <span :style="{color: mode==='collect' ? 'var(--green)' : 'var(--yellow)', fontWeight:'bold', fontSize:'13px'}">
+        {{ mode==='collect' ? '🟢 采集模式' : '🟠 配置模式' }}
+      </span>
+      <el-button size="small" :type="mode==='collect'?'warning':'success'" @click="toggleMode">
+        切换到{{ mode==='collect' ? '配置模式' : '采集模式' }}
+      </el-button>
+    </div>
+
+    <div class="content">
+
+      <!-- ============ 监控大盘 ============ -->
+      <div v-show="page==='dashboard'">
+        <div class="stat-row">
+          <div class="stat-card c-green">
+            <div class="stat-num">{{ overview.online ?? '-' }}</div>
+            <div class="stat-label">在线设备 / 共 {{ overview.total ?? 0 }} 台</div>
+          </div>
+          <div class="stat-card c-red">
+            <div class="stat-num">{{ overview.offline ?? '-' }}</div>
+            <div class="stat-label">离线设备</div>
+          </div>
+          <div class="stat-card c-blue">
+            <div class="stat-num">{{ overview.avg_latency ?? '-' }}<small style="font-size:14px">ms</small></div>
+            <div class="stat-label">平均时延</div>
+          </div>
+          <div class="stat-card c-yellow">
+            <div class="stat-num">{{ overview.unacked_alerts ?? 0 }}</div>
+            <div class="stat-label">未确认告警</div>
+          </div>
+        </div>
+
+        <el-row :gutter="14">
+          <el-col :span="16">
+            <div class="panel">
+              <div class="panel-title">状态趋势（近6小时）
+                <el-button size="small" text style="float:right" @click="refreshDashboard">刷新</el-button>
+              </div>
+              <div class="chart-box"><canvas id="trendChart"></canvas></div>
+            </div>
+            <div class="panel">
+              <div class="panel-title">设备状态</div>
+              <el-collapse v-model="zoneOpen" class="zone-collapse">
+                <el-collapse-item v-for="z in statusByZone" :key="z.zone" :name="z.zone">
+                  <template #title>
+                    <span style="font-size:14px">📁 <b>{{ z.zone }}</b>
+                      <span style="color:#8b949e;font-size:12px;margin-left:10px">{{ z.devices.length }} 台</span>
+                      <span style="color:var(--green);font-size:12px;margin-left:8px">{{ z.devices.filter(d=>d.online===true).length }} 在线</span>
+                      <span v-if="z.devices.some(d=>d.online===false)"
+                            style="color:var(--red);font-size:12px;margin-left:8px">{{ z.devices.filter(d=>d.online===false).length }} 离线</span>
+                    </span>
+                  </template>
+              <el-table :data="z.devices" size="small" max-height="380"
+                        @row-click="openDeviceDetail" style="cursor:pointer">
+                <el-table-column label="状态" width="70">
+                  <template #default="{row}">
+                    <span class="dot" :class="row.online===true?'green':row.online===false?'red':'gray'"></span>
+                    {{ row.online===true?'在线':row.online===false?'离线':'未知' }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="device_name" label="设备" width="160"></el-table-column>
+                <el-table-column prop="host" label="IP" width="130"></el-table-column>
+                <el-table-column prop="group_name" label="分组" width="100"></el-table-column>
+                <el-table-column label="时延" width="80">
+                  <template #default="{row}">{{ row.latency_ms!=null ? row.latency_ms+'ms' : '-' }}</template>
+                </el-table-column>
+                <el-table-column label="CPU" width="120">
+                  <template #default="{row}">
+                    <el-progress v-if="row.cpu_pct!=null" :percentage="row.cpu_pct"
+                                 :status="row.cpu_pct>=85?'exception':row.cpu_pct>=70?'warning':'success'"></el-progress>
+                    <span v-else>-</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="内存" width="120">
+                  <template #default="{row}">
+                    <el-progress v-if="row.mem_pct!=null" :percentage="row.mem_pct"
+                                 :status="row.mem_pct>=85?'exception':row.mem_pct>=70?'warning':'success'"></el-progress>
+                    <span v-else>-</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="温度" width="80">
+                  <template #default="{row}">
+                    <span v-if="row.temperature!=null"
+                          :style="{color: row.temperature>=70?'var(--red)':row.temperature>=55?'var(--yellow)':'inherit'}">
+                      {{ row.temperature }}℃</span>
+                    <span v-else>-</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="接口 up/down" width="110">
+                  <template #default="{row}">
+                    <span v-if="row.if_up!=null">
+                      <span style="color:var(--green)">{{row.if_up}}</span> /
+                      <span style="color:var(--red)">{{row.if_down}}</span>
+                    </span>
+                    <span v-else>-</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="流量 ↓入 ↑出" width="170">
+                  <template #default="{row}">
+                    <span v-if="row.in_bps!=null" style="font-size:12px">
+                      ↓{{ fmtBps(row.in_bps) }} ↑{{ fmtBps(row.out_bps) }}
+                    </span>
+                    <span v-else>-</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+                </el-collapse-item>
+              </el-collapse>
+            </div>
+          </el-col>
+          <el-col :span="8">
+            <div class="panel" style="max-height:calc(100vh - 220px);overflow-y:auto">
+              <div class="panel-title">告警
+                <el-button size="small" text style="float:right" @click="ackAll">全部确认</el-button>
+              </div>
+              <div v-for="a in alerts" :key="a.id" class="alert-item">
+                <el-tag :type="a.level==='critical'?'danger':a.level==='warning'?'warning':'info'"
+                        size="small" style="flex-shrink:0">
+                  {{ a.level==='critical'?'严重':a.level==='warning'?'警告':'恢复' }}
+                </el-tag>
+                <div style="flex:1">
+                  <div>{{ a.message }}</div>
+                  <div style="color:#8b949e;font-size:12px">{{ fmtTime(a.ts) }}</div>
+                </div>
+                <el-button v-if="!a.acknowledged" size="small" text type="primary"
+                           @click="ackAlert(a.id)">确认</el-button>
+              </div>
+              <el-empty v-if="!alerts.length" description="暂无告警" :image-size="60"></el-empty>
+            </div>
+          </el-col>
+        </el-row>
+      </div>
+
+      <!-- ============ 采集任务 ============ -->
+      <div v-show="page==='tasks'">
+        <el-row :gutter="14">
+          <el-col :span="9">
+            <div class="panel">
+              <div class="panel-title">新建采集任务</div>
+              <el-form label-width="80px">
+                <el-form-item label="任务名称">
+                  <el-input v-model="taskForm.name" placeholder="如：每日配置备份"></el-input>
+                </el-form-item>
+                <el-form-item label="选择设备">
+                  <el-select v-model="taskForm.group" placeholder="按分组筛选" clearable
+                             style="width:100%;margin-bottom:8px">
+                    <el-option v-for="g in groups" :key="g" :label="g" :value="g"></el-option>
+                  </el-select>
+                  <el-table :data="taskDevices" size="small" height="240"
+                            @selection-change="s => taskForm.deviceIds = s.map(d=>d.id)">
+                    <el-table-column type="selection" width="40"></el-table-column>
+                    <el-table-column prop="name" label="设备名"></el-table-column>
+                    <el-table-column prop="host" label="IP" width="110"></el-table-column>
+                    <el-table-column prop="device_type" label="类型" width="90"></el-table-column>
+                  </el-table>
+                </el-form-item>
+                <el-form-item label="命令清单">
+                  <div style="width:100%">
+                    <div style="margin-bottom:6px">
+                      <el-button class="preset-btn" size="small" @click="applyPreset('huawei')">华为</el-button>
+                      <el-button class="preset-btn" size="small" @click="applyPreset('h3c')">H3C</el-button>
+                      <el-button class="preset-btn" size="small" @click="applyPreset('zte')">中兴</el-button>
+                      <el-button class="preset-btn" size="small" @click="applyPreset('cisco')">思科</el-button>
+                      <el-button class="preset-btn" size="small" @click="applyPreset('linux')">Linux</el-button>
+                    </div>
+                    <el-input v-model="taskForm.commands" type="textarea" :rows="7" class="cmd-input"
+                              placeholder="每行一条命令，如：&#10;show version&#10;show running-config"></el-input>
+                    <div style="font-size:12px;color:var(--yellow);margin-top:4px" v-if="mode==='collect'">
+                      采集模式下仅允许只读命令（{{ settings.cmd_whitelist?.join(' / ') }} 开头）
+                    </div>
+                  </div>
+                </el-form-item>
+                <el-form-item>
+                  <el-button type="primary" :loading="creating" @click="createTask">开始采集</el-button>
+                </el-form-item>
+              </el-form>
+            </div>
+            <div class="panel">
+              <div class="panel-title">SNMP 表格采集（导出 Excel）</div>
+              <el-form label-width="80px">
+                <el-form-item label="选择设备">
+                  <el-select v-model="snmpJob.deviceIds" multiple collapse-tags collapse-tags-tooltip
+                             placeholder="仅显示已绑定 SNMP 模板的设备" style="width:100%">
+                    <el-option v-for="d in snmpCapableDevices" :key="d.id" :label="d.name" :value="d.id"></el-option>
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="表格类型">
+                  <el-checkbox-group v-model="snmpJob.tables">
+                    <el-checkbox value="arp">ARP表</el-checkbox>
+                    <el-checkbox value="mac">MAC地址表</el-checkbox>
+                    <el-checkbox value="interface">接口清单</el-checkbox>
+                    <el-checkbox value="optical">光模块诊断</el-checkbox>
+                    <el-checkbox value="hardware">硬件状态</el-checkbox>
+                  </el-checkbox-group>
+                </el-form-item>
+                <el-form-item>
+                  <el-button type="primary" :loading="snmpJob.running" @click="startSnmpCollect">开始采集</el-button>
+                  <el-button v-if="snmpJob.done" type="success" @click="downloadSnmpResult">下载 Excel</el-button>
+                  <span v-if="snmpJob.status" style="margin-left:10px;font-size:12px;color:#8b949e">{{ snmpJob.status }}</span>
+                </el-form-item>
+              </el-form>
+            </div>
+          </el-col>
+          <el-col :span="15">
+            <div class="panel">
+              <div class="panel-title">任务列表
+                <el-button size="small" text style="float:right" @click="loadTasks">刷新</el-button>
+              </div>
+              <el-table :data="tasks" size="small" @row-click="openTask" style="cursor:pointer" max-height="70vh">
+                <el-table-column prop="id" label="#" width="50"></el-table-column>
+                <el-table-column prop="name" label="任务名" show-overflow-tooltip></el-table-column>
+                <el-table-column label="状态" width="90">
+                  <template #default="{row}">
+                    <el-tag v-if="row.status==='running'" type="warning">运行中</el-tag>
+                    <el-tag v-else-if="row.status==='done'" type="success">完成</el-tag>
+                    <el-tag v-else-if="row.status==='cancelled'" type="info">已取消</el-tag>
+                    <el-tag v-else>等待中</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="进度" width="150">
+                  <template #default="{row}">
+                    <el-progress :percentage="row.total?Math.round((row.success+row.failed)/row.total*100):0"
+                                 :status="row.failed?'exception':undefined"></el-progress>
+                  </template>
+                </el-table-column>
+                <el-table-column label="成功/失败" width="90">
+                  <template #default="{row}">
+                    <span style="color:var(--green)">{{row.success}}</span> /
+                    <span style="color:var(--red)">{{row.failed}}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="created_at" label="创建时间" width="150">
+                  <template #default="{row}">{{ fmtTime(row.created_at) }}</template>
+                </el-table-column>
+              </el-table>
+            </div>
+          </el-col>
+        </el-row>
+      </div>
+
+      <!-- ============ 设备管理 ============ -->
+      <div v-show="page==='devices'">
+        <div class="panel">
+          <div class="toolbar">
+            <el-button type="primary" @click="openDeviceDialog()">新增设备</el-button>
+            <el-upload :show-file-list="false" accept=".xlsx" :http-request="importDevices" style="display:inline-block">
+              <el-button>Excel 导入</el-button>
+            </el-upload>
+            <el-button @click="downloadTemplate">下载模板</el-button>
+            <el-button @click="exportDevices">导出</el-button>
+            <el-select v-model="deviceFilter" placeholder="按分组筛选" clearable style="width:160px;margin-left:auto">
+              <el-option v-for="g in groups" :key="g" :label="g" :value="g"></el-option>
+            </el-select>
+          </div>
+          <el-collapse v-model="zoneOpen" class="zone-collapse">
+            <el-collapse-item v-for="z in devicesByZone" :key="z.zone" :name="z.zone">
+              <template #title>
+                <span style="font-size:14px">📁 <b>{{ z.zone }}</b>
+                  <span style="color:#8b949e;font-size:12px;margin-left:10px">{{ z.devices.length }} 台</span>
+                </span>
+              </template>
+          <el-table :data="z.devices" size="small">
+            <el-table-column prop="name" label="设备名" width="150"></el-table-column>
+            <el-table-column prop="host" label="IP地址" width="130"></el-table-column>
+            <el-table-column prop="port" label="端口" width="70"></el-table-column>
+            <el-table-column prop="protocol" label="协议" width="70"></el-table-column>
+            <el-table-column prop="device_type" label="类型" width="110"></el-table-column>
+            <el-table-column prop="group_name" label="分组" width="100"></el-table-column>
+            <el-table-column label="凭据" width="130">
+              <template #default="{row}">{{ credName(row.credential_id) }}</template>
+            </el-table-column>
+            <el-table-column label="版本/运行时间" width="180">
+              <template #default="{row}">
+                <div v-if="assetOf(row.name)" style="font-size:12px;line-height:1.4">
+                  <div>{{ assetOf(row.name).version || '-' }}</div>
+                  <div style="color:#8b949e">运行 {{ assetOf(row.name).uptime_days }} 天</div>
+                </div>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="description" label="描述" show-overflow-tooltip></el-table-column>
+            <el-table-column label="启用" width="60">
+              <template #default="{row}">
+                <el-tag :type="row.enabled?'success':'info'" size="small">{{ row.enabled?'是':'否' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="200" fixed="right">
+              <template #default="{row}">
+                <el-button size="small" type="success" @click="openTerminal(row)">终端</el-button>
+                <el-button size="small" @click="openDeviceDialog(row)">编辑</el-button>
+                <el-popconfirm title="确认删除该设备？" @confirm="deleteDevice(row)">
+                  <template #reference><el-button size="small" type="danger">删除</el-button></template>
+                </el-popconfirm>
+              </template>
+            </el-table-column>
+          </el-table>
+            </el-collapse-item>
+          </el-collapse>
+        </div>
+      </div>
+
+      <!-- ============ 凭据管理 ============ -->
+      <div v-show="page==='credentials'">
+        <div class="panel">
+          <div class="toolbar">
+            <el-button type="primary" @click="openCredDialog()">新增凭据</el-button>
+          </div>
+          <el-table :data="credentials" size="small">
+            <el-table-column prop="name" label="名称" width="180"></el-table-column>
+            <el-table-column prop="username" label="用户名" width="180"></el-table-column>
+            <el-table-column prop="description" label="描述"></el-table-column>
+            <el-table-column prop="created_at" label="创建时间" width="170">
+              <template #default="{row}">{{ fmtTime(row.created_at) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="160">
+              <template #default="{row}">
+                <el-button size="small" @click="openCredDialog(row)">编辑</el-button>
+                <el-popconfirm title="确认删除该凭据？" @confirm="deleteCred(row)">
+                  <template #reference><el-button size="small" type="danger">删除</el-button></template>
+                </el-popconfirm>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <div class="panel">
+          <div class="toolbar">
+            <div class="panel-title" style="margin:0;flex:1">SNMP 模板（v2c / v3）</div>
+            <el-button type="primary" @click="openSnmpDialog()">新增 SNMP 模板</el-button>
+          </div>
+          <el-table :data="snmpProfiles" size="small">
+            <el-table-column prop="name" label="名称" width="180"></el-table-column>
+            <el-table-column prop="version" label="版本" width="80"></el-table-column>
+            <el-table-column prop="port" label="端口" width="80"></el-table-column>
+            <el-table-column label="认证" width="200">
+              <template #default="{row}">
+                <span v-if="row.version==='v2c'">community（已加密存储）</span>
+                <span v-else>{{ row.v3_user }} / {{ row.v3_auth_proto }}+{{ row.v3_priv_proto }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="description" label="描述"></el-table-column>
+            <el-table-column label="操作" width="240">
+              <template #default="{row}">
+                <el-button size="small" type="success" @click="testSnmp(row)">测试</el-button>
+                <el-button size="small" @click="openSnmpDialog(row)">编辑</el-button>
+                <el-popconfirm title="确认删除该模板？" @confirm="deleteSnmp(row)">
+                  <template #reference><el-button size="small" type="danger">删除</el-button></template>
+                </el-popconfirm>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </div>
+
+      <!-- ============ 全文检索 ============ -->
+      <div v-show="page==='search'">
+        <div class="panel">
+          <div class="toolbar">
+            <el-input v-model="searchQ" placeholder="输入关键词（空格分隔多个条件），如：vlan 100"
+                      style="width:400px" @keyup.enter="doSearch"></el-input>
+            <el-button type="primary" @click="doSearch">搜索</el-button>
+          </div>
+          <div v-for="(hit,i) in searchHits" :key="i" class="panel" style="margin-bottom:8px;padding:10px">
+            <div>
+              <el-tag size="small">{{ hit.device_name }}</el-tag>
+              <code style="margin-left:8px;color:var(--blue)">{{ hit.command }}</code>
+            </div>
+            <pre class="output" style="max-height:120px;margin:8px 0 0" v-html="hit.snippet"></pre>
+          </div>
+          <el-empty v-if="searched && !searchHits.length" description="没有匹配的结果"></el-empty>
+        </div>
+      </div>
+
+      <!-- ============ 定时任务 ============ -->
+      <div v-show="page==='schedules'">
+        <div class="panel">
+          <div class="toolbar">
+            <el-button type="primary" @click="openScheduleDialog()">新增定时任务</el-button>
+          </div>
+          <el-table :data="schedules" size="small">
+            <el-table-column prop="name" label="名称"></el-table-column>
+            <el-table-column prop="cron" label="cron 表达式" width="130"></el-table-column>
+            <el-table-column prop="device_group" label="设备分组" width="110">
+              <template #default="{row}">{{ row.device_group || '全部' }}</template>
+            </el-table-column>
+            <el-table-column label="命令数" width="80">
+              <template #default="{row}">{{ row.commands.length }}</template>
+            </el-table-column>
+            <el-table-column prop="last_run_at" label="上次执行" width="160">
+              <template #default="{row}">{{ fmtTime(row.last_run_at) || '-' }}</template>
+            </el-table-column>
+            <el-table-column prop="next_run" label="下次执行" width="160"></el-table-column>
+            <el-table-column label="启用" width="70">
+              <template #default="{row}">
+                <el-tag :type="row.enabled?'success':'info'" size="small">{{ row.enabled?'是':'否' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="160">
+              <template #default="{row}">
+                <el-button size="small" @click="openScheduleDialog(row)">编辑</el-button>
+                <el-popconfirm title="确认删除？" @confirm="deleteSchedule(row)">
+                  <template #reference><el-button size="small" type="danger">删除</el-button></template>
+                </el-popconfirm>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </div>
+
+      <!-- ============ 审计日志 ============ -->
+      <div v-show="page==='audit'">
+        <div class="panel">
+          <div class="toolbar"><el-button size="small" @click="loadAudit">刷新</el-button></div>
+          <el-table :data="auditLogs" size="small" max-height="70vh">
+            <el-table-column prop="ts" label="时间" width="170"></el-table-column>
+            <el-table-column prop="source" label="来源" width="90"></el-table-column>
+            <el-table-column prop="device_name" label="设备" width="160"></el-table-column>
+            <el-table-column prop="command" label="命令"></el-table-column>
+            <el-table-column label="结果" width="80">
+              <template #default="{row}">
+                <el-tag :type="row.allowed?'success':'danger'" size="small">
+                  {{ row.allowed ? '放行' : '拦截' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="mode" label="模式" width="80">
+              <template #default="{row}">{{ row.mode==='collect'?'采集':'配置' }}</template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </div>
+
+      <!-- ============ 设置 ============ -->
+      <div v-show="page==='settings'">
+        <div class="panel" style="max-width:680px">
+          <div class="panel-title">采集参数</div>
+          <el-form label-width="140px">
+            <el-form-item label="只读命令白名单">
+              <el-select v-model="settingsForm.cmd_whitelist" multiple filterable allow-create
+                         default-first-option placeholder="输入命令前缀后回车添加" style="width:100%">
+                <el-option v-for="w in settingsForm.cmd_whitelist" :key="w" :label="w" :value="w"></el-option>
+              </el-select>
+            </el-form-item>
+            <el-form-item label="并发数">
+              <el-input-number v-model="settingsForm.concurrency" :min="1" :max="100"></el-input-number>
+            </el-form-item>
+            <el-form-item label="连接超时(秒)">
+              <el-input-number v-model="settingsForm.connect_timeout" :min="3" :max="120"></el-input-number>
+            </el-form-item>
+            <el-form-item label="读取超时(秒)">
+              <el-input-number v-model="settingsForm.read_timeout" :min="5" :max="300"></el-input-number>
+            </el-form-item>
+            <el-form-item label="失败重试次数">
+              <el-input-number v-model="settingsForm.retry" :min="0" :max="5"></el-input-number>
+            </el-form-item>
+          </el-form>
+          <div class="panel-title" style="margin-top:8px">监控参数</div>
+          <el-form label-width="140px">
+            <el-form-item label="启用监控">
+              <el-switch v-model="settingsForm.monitor_enabled"></el-switch>
+            </el-form-item>
+            <el-form-item label="监控间隔(分钟)">
+              <el-input-number v-model="settingsForm.monitor_interval_min" :min="1" :max="60"></el-input-number>
+            </el-form-item>
+            <el-form-item label="CPU告警阈值(%)">
+              <el-input-number v-model="settingsForm.cpu_threshold" :min="50" :max="100"></el-input-number>
+            </el-form-item>
+            <el-form-item label="内存告警阈值(%)">
+              <el-input-number v-model="settingsForm.mem_threshold" :min="50" :max="100"></el-input-number>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" @click="saveSettings">保存设置</el-button>
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 设备详情抽屉（监控） -->
+  <el-drawer v-model="deviceDrawer" size="55%" :title="`设备详情 - ${detailDevice}`">
+    <div v-if="detailInfo" style="margin-bottom:12px;color:#8b949e;font-size:13px">
+      {{ detailInfo.host }} · {{ detailInfo.group_name }} ·
+      <span :style="{color: detailInfo.online?'var(--green)':'var(--red)'}">
+        {{ detailInfo.online ? '在线' : '离线' }}
+      </span>
+      <span v-if="assetOf(detailDevice)" style="margin-left:8px">
+        · {{ assetOf(detailDevice).version }} · 运行 {{ assetOf(detailDevice).uptime_days }} 天
+      </span>
+      <el-select v-model="detailHours" size="small" style="width:120px;float:right" @change="loadDeviceHistory">
+        <el-option :value="1" label="近1小时"></el-option>
+        <el-option :value="6" label="近6小时"></el-option>
+        <el-option :value="24" label="近24小时"></el-option>
+      </el-select>
+    </div>
+    <div v-if="assetOf(detailDevice)" class="panel" style="font-size:12px;color:#8b949e">
+      {{ assetOf(detailDevice).sys_descr }}
+    </div>
+    <div class="panel"><div class="panel-title">流量 (bps)</div>
+      <div style="height:160px"><canvas id="trafficChart"></canvas></div></div>
+    <div class="panel"><div class="panel-title">时延 (ms)</div>
+      <div style="height:160px"><canvas id="latChart"></canvas></div></div>
+    <div class="panel"><div class="panel-title">CPU / 内存 (%) / 温度 (℃)</div>
+      <div style="height:160px"><canvas id="perfChart"></canvas></div></div>
+  </el-drawer>
+
+  <!-- 任务详情抽屉 -->
+  <el-drawer v-model="taskDrawer" size="60%" :title="currentTask?.task?.name || '任务详情'">
+    <template v-if="currentTask">
+      <div class="toolbar">
+        <el-tag>命令: {{ currentTask.commands.join(' | ') }}</el-tag>
+        <el-button size="small" type="primary" @click="downloadZip(currentTask.task.id)">打包下载</el-button>
+        <el-button v-if="currentTask.task.status==='running'" size="small" type="danger"
+                   @click="cancelTask(currentTask.task.id)">取消任务</el-button>
+      </div>
+      <el-table :data="currentTask.results" size="small" max-height="70vh">
+        <el-table-column prop="device_name" label="设备" width="150"></el-table-column>
+        <el-table-column label="状态" width="90">
+          <template #default="{row}">
+            <el-tag v-if="row.status==='success'" type="success" size="small">成功</el-tag>
+            <el-tag v-else-if="row.status==='failed'" type="danger" size="small">失败</el-tag>
+            <el-tag v-else-if="row.status==='running'" type="warning" size="small">采集中</el-tag>
+            <el-tag v-else size="small" type="info">等待</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="变更" width="80">
+          <template #default="{row}">
+            <el-tag v-if="row.has_change" type="danger" size="small">有变更</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="error" label="失败原因" show-overflow-tooltip></el-table-column>
+        <el-table-column label="操作" width="120">
+          <template #default="{row}">
+            <el-button v-if="row.status==='success'" size="small"
+                       @click="viewOutputs(currentTask.task.id, row.device_name)">查看结果</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </template>
+  </el-drawer>
+
+  <!-- 结果查看对话框 -->
+  <el-dialog v-model="outputDialog" :title="`采集结果 - ${outputDevice}`" width="70%" top="5vh">
+    <el-tabs v-model="outputTab">
+      <el-tab-pane v-for="f in outputFiles" :key="f.file" :label="f.command" :name="f.file">
+        <div class="toolbar">
+          <el-button size="small" @click="showDiff(f)">与上一版对比</el-button>
+        </div>
+        <pre class="output">{{ outputContent[f.file] || '加载中...' }}</pre>
+      </el-tab-pane>
+    </el-tabs>
+  </el-dialog>
+
+  <!-- diff 对话框 -->
+  <el-dialog v-model="diffDialog" title="配置变更对比" width="70%" top="5vh">
+    <el-alert v-if="!diffText && diffLoaded" type="success" :closable="false"
+              title="与上一版本相比没有变化"></el-alert>
+    <pre v-else class="diff"><span v-for="(line,i) in diffLines" :key="i"
+      :class="{'diff-add':line.startsWith('+')&&!line.startsWith('+++'),
+               'diff-del':line.startsWith('-')&&!line.startsWith('---')}">{{ line }}&#10;</span></pre>
+  </el-dialog>
+
+  <!-- 设备编辑对话框 -->
+  <el-dialog v-model="deviceDialog" :title="deviceForm.id?'编辑设备':'新增设备'" width="520px">
+    <el-form label-width="90px">
+      <el-form-item label="设备名"><el-input v-model="deviceForm.name"></el-input></el-form-item>
+      <el-form-item label="IP地址"><el-input v-model="deviceForm.host"></el-input></el-form-item>
+      <el-form-item label="端口"><el-input-number v-model="deviceForm.port" :min="1" :max="65535"></el-input-number></el-form-item>
+      <el-form-item label="协议">
+        <el-radio-group v-model="deviceForm.protocol">
+          <el-radio value="ssh">SSH</el-radio><el-radio value="telnet">Telnet</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item label="设备类型">
+        <el-select v-model="deviceForm.device_type" style="width:100%">
+          <el-option v-for="t in deviceTypes" :key="t.value" :label="t.label" :value="t.value"></el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="分组">
+        <el-select v-model="deviceForm.group_name" filterable allow-create default-first-option style="width:100%">
+          <el-option v-for="g in groups" :key="g" :label="g" :value="g"></el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="凭据">
+        <el-select v-model="deviceForm.credential_id" style="width:100%">
+          <el-option v-for="c in credentials" :key="c.id" :label="c.name" :value="c.id"></el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="SNMP模板">
+        <el-select v-model="deviceForm.snmp_profile_id" clearable placeholder="不启用 SNMP 监控" style="width:100%">
+          <el-option v-for="s in snmpProfiles" :key="s.id" :label="`${s.name} (${s.version})`" :value="s.id"></el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="描述"><el-input v-model="deviceForm.description"></el-input></el-form-item>
+      <el-form-item label="启用"><el-switch v-model="deviceForm.enabled"></el-switch></el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="deviceDialog=false">取消</el-button>
+      <el-button type="primary" @click="saveDevice">保存</el-button>
+    </template>
+  </el-dialog>
+
+  <!-- 凭据编辑对话框 -->
+  <el-dialog v-model="credDialog" :title="credForm.id?'编辑凭据':'新增凭据'" width="480px">
+    <el-form label-width="100px">
+      <el-form-item label="名称"><el-input v-model="credForm.name"></el-input></el-form-item>
+      <el-form-item label="用户名"><el-input v-model="credForm.username"></el-input></el-form-item>
+      <el-form-item label="密码">
+        <el-input v-model="credForm.password" type="password" show-password
+                  :placeholder="credForm.id?'留空表示不修改':''"></el-input>
+      </el-form-item>
+      <el-form-item label="Enable密码">
+        <el-input v-model="credForm.enable_password" type="password" show-password
+                  placeholder="思科/中兴等需要，可留空"></el-input>
+      </el-form-item>
+      <el-form-item label="描述"><el-input v-model="credForm.description"></el-input></el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="credDialog=false">取消</el-button>
+      <el-button type="primary" @click="saveCred">保存</el-button>
+    </template>
+  </el-dialog>
+
+  <!-- SNMP 模板对话框 -->
+  <el-dialog v-model="snmpDialog" :title="snmpForm.id?'编辑SNMP模板':'新增SNMP模板'" width="500px">
+    <el-form label-width="110px">
+      <el-form-item label="名称"><el-input v-model="snmpForm.name"></el-input></el-form-item>
+      <el-form-item label="版本">
+        <el-radio-group v-model="snmpForm.version">
+          <el-radio value="v2c">v2c</el-radio><el-radio value="v3">v3</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item label="端口"><el-input-number v-model="snmpForm.port" :min="1" :max="65535"></el-input-number></el-form-item>
+      <template v-if="snmpForm.version==='v2c'">
+        <el-form-item label="Community">
+          <el-input v-model="snmpForm.community" type="password" show-password
+                    :placeholder="snmpForm.id?'留空表示不修改':'只读 community'"></el-input>
+        </el-form-item>
+      </template>
+      <template v-else>
+        <el-form-item label="用户名"><el-input v-model="snmpForm.v3_user"></el-input></el-form-item>
+        <el-form-item label="认证协议">
+          <el-select v-model="snmpForm.v3_auth_proto" style="width:100%">
+            <el-option value="MD5" label="MD5"></el-option><el-option value="SHA" label="SHA"></el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="认证密钥">
+          <el-input v-model="snmpForm.v3_auth_key" type="password" show-password
+                    :placeholder="snmpForm.id?'留空表示不修改':''"></el-input>
+        </el-form-item>
+        <el-form-item label="加密协议">
+          <el-select v-model="snmpForm.v3_priv_proto" style="width:100%">
+            <el-option value="DES" label="DES"></el-option><el-option value="AES" label="AES"></el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="加密密钥">
+          <el-input v-model="snmpForm.v3_priv_key" type="password" show-password
+                    :placeholder="snmpForm.id?'留空表示不修改':''"></el-input>
+        </el-form-item>
+      </template>
+      <el-form-item label="描述"><el-input v-model="snmpForm.description"></el-input></el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="snmpDialog=false">取消</el-button>
+      <el-button type="primary" @click="saveSnmp">保存</el-button>
+    </template>
+  </el-dialog>
+
+  <!-- 定时任务对话框 -->
+  <el-dialog v-model="scheduleDialog" :title="scheduleForm.id?'编辑定时任务':'新增定时任务'" width="520px">
+    <el-form label-width="100px">
+      <el-form-item label="名称"><el-input v-model="scheduleForm.name"></el-input></el-form-item>
+      <el-form-item label="cron表达式">
+        <el-input v-model="scheduleForm.cron" placeholder="分 时 日 月 周，如：0 3 * * *（每天3点）"></el-input>
+      </el-form-item>
+      <el-form-item label="设备分组">
+        <el-select v-model="scheduleForm.device_group" clearable placeholder="留空=全部启用设备" style="width:100%">
+          <el-option v-for="g in groups" :key="g" :label="g" :value="g"></el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="命令清单">
+        <el-input v-model="scheduleForm.commands" type="textarea" :rows="5" class="cmd-input"
+                  placeholder="每行一条命令"></el-input>
+      </el-form-item>
+      <el-form-item label="启用"><el-switch v-model="scheduleForm.enabled"></el-switch></el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="scheduleDialog=false">取消</el-button>
+      <el-button type="primary" @click="saveSchedule">保存</el-button>
+    </template>
+  </el-dialog>
+</div>
+
+<script src="/static/vendor/vue.global.prod.js"></script>
+<script src="/static/vendor/axios.min.js"></script>
+<script src="/static/vendor/chart.umd.min.js"></script>
+<script src="/static/vendor/element-plus.min.js"></script>
+<script src="/static/vendor/element-plus-zh-cn.js"></script>
+<script>
+const { createApp, ref, reactive, computed, onMounted, onUnmounted, nextTick } = Vue;
+
+const PRESETS = {
+  huawei: 'display version\ndisplay current-configuration\ndisplay interface brief\ndisplay cpu-usage\ndisplay memory-usage\ndisplay device',
+  h3c: 'display version\ndisplay current-configuration\ndisplay interface brief\ndisplay cpu-usage\ndisplay memory-usage',
+  zte: 'show version\nshow running-config\nshow ip interface brief\nshow processor\nshow vlan brief',
+  cisco: 'show version\nshow running-config\nshow ip interface brief\nshow processes cpu\nshow memory statistics',
+  linux: 'uname -a\ncat /etc/os-release\ndf -h\ncat /proc/meminfo\nls /',
+};
+
+const PAGE_TITLES = {
+  dashboard: '监控大盘', tasks: '采集任务', devices: '设备管理', credentials: '凭据管理',
+  search: '全文检索', schedules: '定时任务', audit: '审计日志', settings: '设置',
+};
+
+Chart.defaults.color = '#8b949e';
+Chart.defaults.borderColor = 'rgba(45,51,63,.6)';
+
+const app = createApp({
+  setup() {
+    const page = ref('dashboard');
+    const pageTitles = PAGE_TITLES;
+    const mode = ref('collect');
+    const settings = ref({});
+    const devices = ref([]);
+    const credentials = ref([]);
+    const deviceTypes = ref([]);
+    const groups = ref([]);
+    const tasks = ref([]);
+    const auditLogs = ref([]);
+    const schedules = ref([]);
+
+    // 监控
+    const overview = ref({});
+    const alerts = ref([]);
+    const alertPanelVisible = ref(false);
+    const deviceDrawer = ref(false);
+    const detailDevice = ref('');
+    const detailInfo = ref(null);
+    const detailHours = ref(6);
+    const assets = ref([]);
+    let trendChart = null, latChart = null, perfChart = null, trafficChart = null;
+    let knownAlertIds = new Set();
+    let firstAlertLoad = true;
+
+    // SNMP
+    const snmpProfiles = ref([]);
+    const snmpDialog = ref(false);
+    const snmpForm = reactive({});
+    const snmpJob = reactive({ deviceIds: [], tables: ['arp', 'mac'], running: false, done: false, status: '', jobId: null });
+    const snmpCapableDevices = computed(() => devices.value.filter(d => d.snmp_profile_id && d.enabled));
+
+    // 任务
+    const taskForm = reactive({ name: '', group: '', commands: '', deviceIds: [] });
+    const creating = ref(false);
+    const taskDrawer = ref(false);
+    const currentTask = ref(null);
+
+    // 结果
+    const outputDialog = ref(false);
+    const outputDevice = ref('');
+    const outputFiles = ref([]);
+    const outputTab = ref('');
+    const outputContent = reactive({});
+    const outputTaskId = ref(null);
+    const diffDialog = ref(false);
+    const diffText = ref('');
+    const diffLoaded = ref(false);
+    const diffLines = computed(() => diffText.value.split('\n'));
+
+    // 检索
+    const searchQ = ref('');
+    const searchHits = ref([]);
+    const searched = ref(false);
+
+    // 表单
+    const deviceDialog = ref(false);
+    const deviceFilter = ref('');
+    const deviceForm = reactive({});
+    const credDialog = ref(false);
+    const credForm = reactive({});
+    const scheduleDialog = ref(false);
+    const scheduleForm = reactive({});
+    const settingsForm = reactive({
+      cmd_whitelist: [], concurrency: 20, connect_timeout: 15, read_timeout: 30, retry: 1,
+      monitor_enabled: true, monitor_interval_min: 5, cpu_threshold: 85, mem_threshold: 85,
+    });
+
+    const taskDevices = computed(() =>
+      taskForm.group ? devices.value.filter(d => d.group_name === taskForm.group && d.enabled)
+                     : devices.value.filter(d => d.enabled));
+    const filteredDevices = computed(() =>
+      deviceFilter.value ? devices.value.filter(d => d.group_name === deviceFilter.value) : devices.value);
+
+    // 按区划分"文件夹"：设备名后缀 .cn-guangzhou-N → 广州X区，其余归入"其他"
+    const ZONE_CN = { 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八', 9: '九', 10: '十' };
+    const zoneOf = name => {
+      const m = /\.cn-guangzhou-(\d+)/.exec(name || '');
+      return m ? `广州${ZONE_CN[m[1]] || m[1]}区` : '其他';
+    };
+    const groupByZone = (list, key) => {
+      const map = {};
+      list.forEach(d => { const z = zoneOf(d[key]); (map[z] = map[z] || []).push(d); });
+      return Object.keys(map)
+        .sort((a, b) => (a === '其他') - (b === '其他') || a.localeCompare(b, 'zh'))
+        .map(z => ({ zone: z, devices: map[z] }));
+    };
+    const devicesByZone = computed(() => groupByZone(filteredDevices.value, 'name'));
+    const statusByZone = computed(() => groupByZone(overview.value.devices || [], 'device_name'));
+    // 文件夹展开状态：默认全部展开，只记录用户手动收起的区
+    const zoneClosed = ref([]);
+    const zoneOpen = computed({
+      get: () => {
+        const all = new Set([...statusByZone.value, ...devicesByZone.value].map(z => z.zone));
+        return [...all].filter(z => !zoneClosed.value.includes(z));
+      },
+      set: v => {
+        const all = new Set([...statusByZone.value, ...devicesByZone.value].map(z => z.zone));
+        zoneClosed.value = [...all].filter(z => !v.includes(z));
+      },
+    });
+
+    const fmtTime = t => t ? new Date(t).toLocaleString('zh-CN', {hour12:false}) : '';
+    const fmtBps = b => {
+      if (b == null) return '-';
+      if (b >= 1e9) return (b / 1e9).toFixed(2) + 'G';
+      if (b >= 1e6) return (b / 1e6).toFixed(2) + 'M';
+      if (b >= 1e3) return (b / 1e3).toFixed(1) + 'K';
+      return b + '';
+    };
+    const assetOf = name => assets.value.find(a => a.device_name === name);
+    const toast = (msg, type='success') => ElementPlus.ElMessage[type](msg);
+    const errMsg = e => e.response?.data?.detail || e.message;
+
+    function beep() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        [0, 0.25, 0.5].forEach(t => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain); gain.connect(ctx.destination);
+          osc.frequency.value = 880;
+          gain.gain.setValueAtTime(0.15, ctx.currentTime + t);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.2);
+          osc.start(ctx.currentTime + t); osc.stop(ctx.currentTime + t + 0.2);
+        });
+      } catch (e) {}
+    }
+
+    async function loadAll() {
+      [mode.value, settings.value] = await Promise.all([
+        axios.get('/api/mode').then(r => r.data.mode),
+        axios.get('/api/settings').then(r => r.data),
+      ]);
+      Object.assign(settingsForm, {
+        cmd_whitelist: settings.value.cmd_whitelist,
+        concurrency: settings.value.concurrency,
+        connect_timeout: settings.value.connect_timeout,
+        read_timeout: settings.value.read_timeout,
+        retry: settings.value.retry,
+        monitor_enabled: settings.value.monitor_enabled,
+        monitor_interval_min: settings.value.monitor_interval_min,
+        cpu_threshold: settings.value.cpu_threshold,
+        mem_threshold: settings.value.mem_threshold,
+      });
+      [devices.value, credentials.value, deviceTypes.value, groups.value, snmpProfiles.value, assets.value] = await Promise.all([
+        axios.get('/api/devices').then(r => r.data),
+        axios.get('/api/credentials').then(r => r.data),
+        axios.get('/api/devices/types').then(r => r.data),
+        axios.get('/api/devices/groups').then(r => r.data),
+        axios.get('/api/snmp-profiles').then(r => r.data),
+        axios.get('/api/monitor/assets').then(r => r.data),
+      ]);
+    }
+
+    // ---------- SNMP 模板 ----------
+    function openSnmpDialog(row) {
+      Object.assign(snmpForm, row ? { ...row, community: '', v3_auth_key: '', v3_priv_key: '' } :
+        { id: null, name: '', version: 'v2c', port: 161, community: '', v3_user: '',
+          v3_auth_key: '', v3_priv_key: '', v3_auth_proto: 'MD5', v3_priv_proto: 'DES', description: '' });
+      snmpDialog.value = true;
+    }
+    async function saveSnmp() {
+      const { id, created_at, ...body } = snmpForm;
+      try {
+        if (id) await axios.put(`/api/snmp-profiles/${id}`, body);
+        else await axios.post('/api/snmp-profiles', body);
+        snmpDialog.value = false;
+        toast('已保存');
+        await loadAll();
+      } catch (e) { toast(errMsg(e), 'error'); }
+    }
+    async function deleteSnmp(row) {
+      try {
+        await axios.delete(`/api/snmp-profiles/${row.id}`);
+        toast('已删除');
+        await loadAll();
+      } catch (e) { toast(errMsg(e), 'error'); }
+    }
+    async function testSnmp(row) {
+      let host;
+      try {
+        const { value } = await ElementPlus.ElMessageBox.prompt('输入要测试的设备 IP', 'SNMP 连通性测试', {
+          confirmButtonText: '测试', cancelButtonText: '取消',
+          inputPlaceholder: '如 192.168.1.1',
+        });
+        host = value;
+      } catch { return; }
+      try {
+        const r = await axios.post(`/api/snmp-profiles/${row.id}/test`, null, { params: { host } }).then(r => r.data);
+        if (r.ok) {
+          ElementPlus.ElMessageBox.alert(
+            `时延 ${r.latency_ms}ms\nsysName: ${r.sys_name}\n版本: ${r.version}\n${r.sys_descr}`,
+            '✅ SNMP 连接成功', { confirmButtonText: '好' });
+        } else {
+          toast(r.message, 'error');
+        }
+      } catch (e) { toast(errMsg(e), 'error'); }
+    }
+
+    // ---------- SNMP 表格采集 ----------
+    async function startSnmpCollect() {
+      if (!snmpJob.deviceIds.length) return toast('请选择设备', 'warning');
+      if (!snmpJob.tables.length) return toast('请选择表格类型', 'warning');
+      snmpJob.running = true;
+      snmpJob.done = false;
+      snmpJob.status = '启动中...';
+      try {
+        const { job_id } = await axios.post('/api/snmp/collect',
+          { device_ids: snmpJob.deviceIds, tables: snmpJob.tables }).then(r => r.data);
+        snmpJob.jobId = job_id;
+        const timer = setInterval(async () => {
+          const j = await axios.get(`/api/snmp/collect/${job_id}`).then(r => r.data);
+          snmpJob.status = j.status === 'done'
+            ? `完成：${JSON.stringify(j.counts)}${j.errors.length ? '（' + j.errors.length + ' 台失败）' : ''}`
+            : `进行中 ${j.done}/${j.total}...`;
+          if (j.status === 'done') {
+            clearInterval(timer);
+            snmpJob.running = false;
+            snmpJob.done = true;
+            if (j.errors.length) {
+              ElementPlus.ElMessageBox.alert(j.errors.join('\n'), '部分设备失败', { type: 'warning' });
+            }
+          }
+        }, 2000);
+      } catch (e) {
+        snmpJob.running = false;
+        snmpJob.status = '';
+        toast(errMsg(e), 'error');
+      }
+    }
+    function downloadSnmpResult() {
+      window.open(`/api/snmp/collect/${snmpJob.jobId}/download`, '_blank');
+    }
+
+    // ---------- 监控 ----------
+    async function refreshDashboard() {
+      overview.value = await axios.get('/api/monitor/overview').then(r => r.data);
+      await renderTrend();
+    }
+
+    async function renderTrend() {
+      const data = await axios.get('/api/monitor/history', { params: { hours: 6 } }).then(r => r.data);
+      await nextTick();
+      const el = document.getElementById('trendChart');
+      if (!el) return;
+      const labels = data.points.map(p => p.ts.slice(5, 16));
+      if (trendChart) trendChart.destroy();
+      trendChart = new Chart(el, {
+        type: 'line',
+        data: { labels, datasets: [
+          { label: '在线设备数', data: data.points.map(p => p.online_count),
+            borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,.1)', fill: true, tension: .3 },
+          { label: '平均时延(ms)', data: data.points.map(p => p.avg_latency),
+            borderColor: '#58a6ff', yAxisID: 'y1', tension: .3 },
+        ]},
+        options: { maintainAspectRatio: false, plugins: { legend: { labels: { boxWidth: 12 } } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 } },
+                    y1: { position: 'right', beginAtZero: true, grid: { display: false } } } },
+      });
+    }
+
+    async function loadAlerts() {
+      const list = await axios.get('/api/monitor/alerts').then(r => r.data);
+      const fresh = list.filter(a => !a.acknowledged && !knownAlertIds.has(a.id));
+      if (!firstAlertLoad && fresh.length) {
+        fresh.slice(0, 3).forEach(a => {
+          ElementPlus.ElNotification({
+            title: a.level === 'critical' ? '🔴 严重告警' : '🟡 警告',
+            message: a.message,
+            type: a.level === 'critical' ? 'error' : 'warning',
+            duration: 8000,
+          });
+        });
+        beep();
+      }
+      firstAlertLoad = false;
+      knownAlertIds = new Set(list.filter(a => !a.acknowledged).map(a => a.id));
+      alerts.value = list;
+    }
+
+    async function ackAlert(id) {
+      await axios.post(`/api/monitor/alerts/${id}/ack`);
+      await Promise.all([loadAlerts(), refreshOverviewOnly()]);
+    }
+    async function ackAll() {
+      await axios.post('/api/monitor/alerts/0/ack');
+      await Promise.all([loadAlerts(), refreshOverviewOnly()]);
+    }
+    async function refreshOverviewOnly() {
+      overview.value = await axios.get('/api/monitor/overview').then(r => r.data);
+    }
+
+    async function openDeviceDetail(row) {
+      detailDevice.value = row.device_name;
+      detailInfo.value = row;
+      deviceDrawer.value = true;
+      await loadDeviceHistory();
+    }
+
+    async function loadDeviceHistory() {
+      const data = await axios.get('/api/monitor/history', {
+        params: { device_name: detailDevice.value, hours: detailHours.value },
+      }).then(r => r.data);
+      await nextTick();
+      const labels = data.points.map(p => (p.ts.slice(5, 16)).replace('T', ' '));
+      const trafEl = document.getElementById('trafficChart');
+      if (trafEl) {
+        if (trafficChart) trafficChart.destroy();
+        const tlabels = (data.traffic || []).map(p => (p.ts.slice(5, 16)).replace('T', ' '));
+        trafficChart = new Chart(trafEl, { type: 'line',
+          data: { labels: tlabels, datasets: [
+            { label: '入向 bps', data: (data.traffic || []).map(p => p.in_bps),
+              borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,.1)', fill: true, tension: .3, spanGaps: true },
+            { label: '出向 bps', data: (data.traffic || []).map(p => p.out_bps),
+              borderColor: '#58a6ff', tension: .3, spanGaps: true },
+          ]},
+          options: { maintainAspectRatio: false, plugins: { legend: { labels: { boxWidth: 12 } } },
+            scales: { y: { beginAtZero: true, ticks: { callback: v => fmtBps(v) } } } } });
+      }
+      const latEl = document.getElementById('latChart');
+      if (latEl) {
+        if (latChart) latChart.destroy();
+        latChart = new Chart(latEl, { type: 'line',
+          data: { labels, datasets: [{ label: '时延(ms)', data: data.points.map(p => p.latency_ms),
+            borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,.1)', fill: true, tension: .3, spanGaps: true }]},
+          options: { maintainAspectRatio: false, plugins: { legend: { display: false } } } });
+      }
+      const perfEl = document.getElementById('perfChart');
+      if (perfEl) {
+        if (perfChart) perfChart.destroy();
+        perfChart = new Chart(perfEl, { type: 'line',
+          data: { labels, datasets: [
+            { label: 'CPU%', data: data.points.map(p => p.cpu_pct), borderColor: '#d29922', tension: .3, spanGaps: true },
+            { label: '内存%', data: data.points.map(p => p.mem_pct), borderColor: '#bc8cff', tension: .3, spanGaps: true },
+            { label: '温度℃', data: data.points.map(p => p.temperature), borderColor: '#f85149', borderDash: [4, 3], tension: .3, spanGaps: true },
+          ]},
+          options: { maintainAspectRatio: false, scales: { y: { max: 100 } },
+            plugins: { legend: { labels: { boxWidth: 12 } } } } });
+      }
+    }
+
+    // ---------- 模式 ----------
+    async function toggleMode() {
+      const target = mode.value === 'collect' ? 'config' : 'collect';
+      if (target === 'config') {
+        try {
+          await ElementPlus.ElMessageBox.confirm(
+            '切换到配置模式后，终端将允许执行任意命令（包括修改设备配置），请确认！',
+            '⚠️ 风险提示', { type: 'warning', confirmButtonText: '确认切换', cancelButtonText: '取消' });
+        } catch { return; }
+      }
+      mode.value = await axios.post('/api/mode', { mode: target }).then(r => r.data.mode);
+      toast(`已切换到${target === 'collect' ? '采集' : '配置'}模式`);
+    }
+
+    // ---------- 任务 ----------
+    async function loadTasks() { tasks.value = await axios.get('/api/tasks').then(r => r.data); }
+    async function loadAudit() { auditLogs.value = await axios.get('/api/audit').then(r => r.data); }
+    async function loadSchedules() { schedules.value = await axios.get('/api/schedules').then(r => r.data); }
+    function applyPreset(k) { taskForm.commands = PRESETS[k]; }
+
+    async function createTask() {
+      const commands = taskForm.commands.split('\n').map(c => c.trim()).filter(Boolean);
+      if (!taskForm.name) return toast('请填写任务名称', 'warning');
+      if (!taskForm.deviceIds.length) return toast('请勾选至少一台设备', 'warning');
+      if (!commands.length) return toast('请填写命令清单', 'warning');
+      creating.value = true;
+      try {
+        await axios.post('/api/tasks', { name: taskForm.name, commands, device_ids: taskForm.deviceIds });
+        toast('任务已启动');
+        await loadTasks();
+      } catch (e) { toast(errMsg(e), 'error'); }
+      finally { creating.value = false; }
+    }
+
+    async function openTask(row) {
+      currentTask.value = await axios.get(`/api/tasks/${row.id}/detail`).then(r => r.data);
+      taskDrawer.value = true;
+    }
+    async function cancelTask(id) {
+      await axios.post(`/api/tasks/${id}/cancel`);
+      toast('已请求取消');
+    }
+    function downloadZip(id) { window.open(`/api/results/${id}/download`, '_blank'); }
+
+    async function viewOutputs(taskId, deviceName) {
+      outputTaskId.value = taskId;
+      outputDevice.value = deviceName;
+      const data = await axios.get(`/api/results/${taskId}/${deviceName}`).then(r => r.data);
+      outputFiles.value = data.files;
+      outputTab.value = data.files[0]?.file || '';
+      outputDialog.value = true;
+      for (const f of data.files) {
+        axios.get(`/api/results/${taskId}/${deviceName}/file/${f.file}`)
+             .then(r => outputContent[f.file] = r.data.content);
+      }
+    }
+
+    async function showDiff(f) {
+      const alias = f.file.replace(`${outputTaskId.value}__`, '').replace('.txt', '');
+      const r = await axios.get(`/api/results/${outputTaskId.value}/${outputDevice.value}/diff/${alias}`).then(r => r.data);
+      diffLoaded.value = true;
+      if (!r.has_previous) {
+        diffText.value = '';
+        ElementPlus.ElMessage.info('这是该命令的首次采集，没有历史版本可对比');
+        return;
+      }
+      diffText.value = r.diff;
+      diffDialog.value = true;
+    }
+
+    // ---------- 设备 ----------
+    function openDeviceDialog(row) {
+      Object.assign(deviceForm, row ? { ...row } :
+        { id: null, name: '', host: '', port: 22, protocol: 'ssh', device_type: 'zte_zxros',
+          group_name: '默认', credential_id: null, description: '', enabled: true });
+      deviceDialog.value = true;
+    }
+    async function saveDevice() {
+      const { id, created_at, ...body } = deviceForm;
+      try {
+        if (id) await axios.put(`/api/devices/${id}`, body);
+        else await axios.post('/api/devices', body);
+        deviceDialog.value = false;
+        toast('已保存');
+        await loadAll();
+      } catch (e) { toast(errMsg(e), 'error'); }
+    }
+    async function deleteDevice(row) {
+      await axios.delete(`/api/devices/${row.id}`);
+      toast('已删除');
+      await loadAll();
+    }
+    function openTerminal(row) { window.open(`/terminal.html?id=${row.id}&name=${encodeURIComponent(row.name)}`, '_blank'); }
+    function downloadTemplate() { window.open('/api/devices/template', '_blank'); }
+    function exportDevices() { window.open('/api/devices/export', '_blank'); }
+    async function importDevices({ file }) {
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        const r = await axios.post('/api/devices/import', fd).then(r => r.data);
+        toast(`导入完成：新增 ${r.created} 台，跳过 ${r.skipped} 台`);
+        if (r.errors.length) ElementPlus.ElMessageBox.alert(r.errors.join('\n'), '部分行导入失败', { type: 'warning' });
+        await loadAll();
+      } catch (e) { toast(errMsg(e), 'error'); }
+    }
+
+    // ---------- 凭据 ----------
+    const credName = id => credentials.value.find(c => c.id === id)?.name || '-';
+    function openCredDialog(row) {
+      Object.assign(credForm, row ? { ...row, password: '', enable_password: '' } :
+        { id: null, name: '', username: '', password: '', enable_password: '', description: '' });
+      credDialog.value = true;
+    }
+    async function saveCred() {
+      const { id, created_at, ...body } = credForm;
+      try {
+        if (id) await axios.put(`/api/credentials/${id}`, body);
+        else await axios.post('/api/credentials', body);
+        credDialog.value = false;
+        toast('已保存');
+        await loadAll();
+      } catch (e) { toast(errMsg(e), 'error'); }
+    }
+    async function deleteCred(row) {
+      try {
+        await axios.delete(`/api/credentials/${row.id}`);
+        toast('已删除');
+        await loadAll();
+      } catch (e) { toast(errMsg(e), 'error'); }
+    }
+
+    // ---------- 检索 ----------
+    async function doSearch() {
+      if (!searchQ.value.trim()) return;
+      searchHits.value = await axios.get('/api/search', { params: { q: searchQ.value } }).then(r => r.data);
+      searched.value = true;
+    }
+
+    // ---------- 定时任务 ----------
+    function openScheduleDialog(row) {
+      Object.assign(scheduleForm, row ? { ...row, commands: row.commands.join('\n') } :
+        { id: null, name: '', cron: '0 3 * * *', device_group: '', commands: '', enabled: true });
+      scheduleDialog.value = true;
+    }
+    async function saveSchedule() {
+      const { id, last_run_at, created_at, next_run, ...rest } = scheduleForm;
+      const body = { ...rest, commands: rest.commands.split('\n').map(c => c.trim()).filter(Boolean) };
+      try {
+        if (id) await axios.put(`/api/schedules/${id}`, body);
+        else await axios.post('/api/schedules', body);
+        scheduleDialog.value = false;
+        toast('已保存');
+        await loadSchedules();
+      } catch (e) { toast(errMsg(e), 'error'); }
+    }
+    async function deleteSchedule(row) {
+      await axios.delete(`/api/schedules/${row.id}`);
+      toast('已删除');
+      await loadSchedules();
+    }
+
+    // ---------- 设置 ----------
+    async function saveSettings() {
+      await axios.post('/api/settings', settingsForm);
+      toast('设置已保存');
+    }
+
+    let pollTimer = null;
+    onMounted(async () => {
+      await loadAll();
+      await Promise.all([loadTasks(), loadSchedules(), loadAudit(), refreshDashboard(), loadAlerts()]);
+      pollTimer = setInterval(async () => {
+        await loadTasks();
+        await loadAlerts();
+        if (page.value === 'dashboard') await refreshOverviewOnly();
+        if (taskDrawer.value && currentTask.value?.task?.status === 'running') {
+          currentTask.value = await axios.get(`/api/tasks/${currentTask.value.task.id}/detail`).then(r => r.data);
+        }
+      }, 15000);
+      // 趋势图低频刷新
+      setInterval(() => { if (page.value === 'dashboard') renderTrend(); }, 60000);
+    });
+    onUnmounted(() => clearInterval(pollTimer));
+
+    return {
+      page, pageTitles, mode, settings, devices, credentials, deviceTypes, groups, tasks, auditLogs, schedules,
+      overview, alerts, alertPanelVisible, deviceDrawer, detailDevice, detailInfo, detailHours, assets,
+      snmpProfiles, snmpDialog, snmpForm, snmpJob, snmpCapableDevices,
+      taskForm, creating, taskDrawer, currentTask, taskDevices, filteredDevices, deviceFilter,
+      devicesByZone, statusByZone, zoneOpen,
+      outputDialog, outputDevice, outputFiles, outputTab, outputContent, diffDialog, diffText, diffLoaded, diffLines,
+      searchQ, searchHits, searched, deviceDialog, deviceForm, credDialog, credForm,
+      scheduleDialog, scheduleForm, settingsForm,
+      fmtTime, fmtBps, assetOf, toggleMode, applyPreset, createTask, openTask, cancelTask, downloadZip,
+      viewOutputs, showDiff, openDeviceDialog, saveDevice, deleteDevice, openTerminal,
+      downloadTemplate, exportDevices, importDevices, credName, openCredDialog, saveCred, deleteCred,
+      doSearch, openScheduleDialog, saveSchedule, deleteSchedule, saveSettings,
+      refreshDashboard, openDeviceDetail, loadDeviceHistory, ackAlert, ackAll, loadTasks, loadAudit,
+      openSnmpDialog, saveSnmp, deleteSnmp, testSnmp, startSnmpCollect, downloadSnmpResult,
+    };
+  }
+});
+
+app.use(ElementPlus, { locale: ElementPlusLocaleZhCn });
+app.mount('#app');
+</script>
+</body>
+</html>

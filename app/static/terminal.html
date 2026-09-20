@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>终端 - zhlwebcrt</title>
+<link rel="stylesheet" href="/static/vendor/xterm.css">
+<style>
+  body { margin: 0; background: #0c0c0c; display: flex; flex-direction: column; height: 100vh; }
+  .bar { background: #001529; color: #fff; padding: 6px 14px; font-size: 13px;
+         font-family: "Microsoft YaHei", sans-serif; display: flex; gap: 12px; align-items: center; }
+  .bar .mode-collect { color: #52c41a; font-weight: bold; }
+  .bar .mode-config { color: #faad14; font-weight: bold; }
+  #terminal { flex: 1; padding: 4px; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span id="devname">终端</span>
+  <span id="modebadge" class="mode-collect"></span>
+  <span style="color:#888">支持 Ctrl+V / 右键粘贴 · 关闭本页签即断开连接</span>
+</div>
+<div id="terminal"></div>
+<script src="/static/vendor/xterm.min.js"></script>
+<script src="/static/vendor/xterm-addon-fit.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const deviceId = params.get('id');
+const deviceName = params.get('name') || `设备#${deviceId}`;
+document.getElementById('devname').textContent = `🖥️ ${deviceName}`;
+document.title = `终端 - ${deviceName}`;
+
+// 显示当前模式
+fetch('/api/mode').then(r => r.json()).then(d => {
+  const badge = document.getElementById('modebadge');
+  if (d.mode === 'collect') {
+    badge.textContent = '🟢 采集模式：仅允许只读命令';
+    badge.className = 'mode-collect';
+  } else {
+    badge.textContent = '🟠 配置模式：谨慎操作';
+    badge.className = 'mode-config';
+  }
+});
+
+const term = new Terminal({
+  cursorBlink: true,
+  fontSize: 14,
+  fontFamily: 'Consolas, "Courier New", monospace',
+  theme: { background: '#0c0c0c' },
+});
+const fitAddon = new FitAddon.FitAddon();
+term.loadAddon(fitAddon);
+term.open(document.getElementById('terminal'));
+fitAddon.fit();
+term.focus();
+
+// 粘贴：在捕获阶段拦截浏览器原生 paste 事件（Ctrl+V / 右键菜单 / Ctrl+Shift+V 都会触发），
+// 直接转发到 WebSocket。stopPropagation 防止 xterm 内部处理器重复发送。
+window.addEventListener('paste', ev => {
+  ev.preventDefault();
+  ev.stopPropagation();
+  const text = (ev.clipboardData || window.clipboardData).getData('text/plain');
+  if (text && ws.readyState === WebSocket.OPEN) {
+    // Windows 剪贴板是 \r\n，统一成 \r，多行粘贴按行逐条下发
+    ws.send(text.replace(/\r\n/g, '\r').replace(/\n/g, '\r'));
+  }
+}, true);
+
+const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+const ws = new WebSocket(`${proto}://${location.host}/ws/terminal/${deviceId}`);
+ws.binaryType = 'arraybuffer';
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+};
+ws.onmessage = ev => {
+  if (typeof ev.data === 'string') term.write(ev.data);
+  else term.write(new Uint8Array(ev.data));
+};
+ws.onclose = () => term.write('\r\n\x1b[1;31m[连接已断开]\x1b[0m\r\n');
+ws.onerror = () => term.write('\r\n\x1b[1;31m[连接错误]\x1b[0m\r\n');
+
+term.onData(data => {
+  if (ws.readyState === WebSocket.OPEN) ws.send(data);
+});
+
+window.addEventListener('resize', () => {
+  fitAddon.fit();
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+  }
+});
+</script>
+</body>
+</html>
